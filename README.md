@@ -4,6 +4,9 @@ A Windows-native ESC/POS network receipt printing utility that converts text int
 
 This project was built as an in-house tool with AI assistance. It is useful for the workflow it was created for, but the test coverage is still limited. Please review and test carefully before using it in a production environment.
 
+<img width="253" height="313" alt="j3Ecs_NetPrint" src="https://github.com/user-attachments/assets/331a23e8-4c2b-461f-a8ad-5e68f00beaa9" />
+
+
 ## Features
 
 - Native Win32 desktop GUI written in Rust.
