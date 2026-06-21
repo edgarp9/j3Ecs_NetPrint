@@ -10,12 +10,14 @@
 - This Rust step keeps Windows-native Win32/GDI text measurement and RGB bitmap rendering separate from ESC/POS network transport.
 - The Windows-native GUI replaces the Tkinter UI and remains a platform I/O boundary. It collects raw strings, delegates validation to the app layer, and delegates rendering/output to the existing infra flow.
 - Windows release binaries use the GUI subsystem so launching the executable does not create an extra console window; debug binaries keep console diagnostics available.
+- Release artifacts include `LICENSE`, `about.txt`, `SOURCE_NOTICE.md`, `THIRD_PARTY_NOTICES.txt`, and `RUST_STANDARD_LIBRARY_NOTICES.html` so the project GPL-3.0-or-later terms, About display text, corresponding source location, third-party dependency notices, and exact Rust standard library notices are distributed with the binary.
 - GUI printer/layout settings and UI preferences are persisted as TOML next to the running executable.
-- The Windows build embeds `icon.ico` as application icon resource ID `1`; the Win32 GUI loads that resource for the window class and applies big and small window icons.
+- The Windows build embeds `icon.ico` as application icon resource ID `1`; the Win32 GUI loads that resource for the window class and applies big and small window icons. The icon notice records project-provided provenance as Google Fonts Icons from `https://fonts.google.com/icons` under SIL Open Font License 1.1.
 - Long-running render/output work is dispatched to a worker thread. Completion is reported to the GUI thread with `PostMessageW`.
 - The GUI emits lightweight stderr diagnostics for button clicks, validated job metadata, worker start/completion/failure, and workflow state transitions without logging the print text itself.
 - The GUI lets the user show or hide the printer/font settings panel with a button; hiding the panel expands the print-text input area into the freed space and keeps current settings values available for printing.
-- The GUI shows the program version and the project link `https://github.com/edgarp9` at the bottom of the settings panel. Selecting the link opens it with the Windows default browser.
+- The GUI shows the program version and the `edgarp9/j3Ecs_NetPrint` project link at the bottom of the settings panel. Selecting the link opens `https://github.com/edgarp9/j3Ecs_NetPrint` with the Windows default browser.
+- The GUI shows a localized `About` link in the settings panel. Selecting it opens a fixed-size native About window titled `About j3Ecs NetPrint`, with `j3Ecs NetPrint {version}` at the top, read-only scrollable `about.txt` text in the body, the project URL link at bottom left, and an `OK` button at bottom right. The text area displays `about.txt` loaded from the executable directory, falling back to the same text embedded at build time if the file is missing.
 - The print-text editor uses a larger UI font for readability; this affects only on-screen editing and does not change receipt image rendering.
 - Automated GUI-boundary tests pin the visible window contract, Python-compatible defaults, worker button state contract, and English/Korean user message mapping.
 
@@ -60,7 +62,9 @@
 - Raw port, font size, and paper width inputs must parse as numbers before domain settings are created.
 - The GUI window title is `ESC/POS Printer Text to Image`.
 - The GUI window and executable use the root `icon.ico` icon through Windows resource ID `1`.
-- The GUI exposes IP/hostname, port, font size, paper width, installed font face selection, UI theme selection, UI language selection, program version information, project link, print text, and a localized print button. The default English button text is `Convert to Image and Print`.
+- The release helper copies the root `LICENSE`, `about.txt`, `SOURCE_NOTICE.md`, and `THIRD_PARTY_NOTICES.txt` files, plus the current Rust toolchain's standard library notice as `RUST_STANDARD_LIBRARY_NOTICES.html`, into the Cargo release output directory after a successful release build.
+- The GUI exposes IP/hostname, port, font size, paper width, installed font face selection, UI theme selection, UI language selection, program version information, project link, About link, print text, and a localized print button. The default English button text is `Convert to Image and Print`.
+- The About link shows the `about.txt` release notice in the About window's scrollable read-only text area. Detailed third-party license texts remain in `THIRD_PARTY_NOTICES.txt`, the project license remains in `LICENSE`, and release-time Rust standard library notices remain in `RUST_STANDARD_LIBRARY_NOTICES.html`.
 - The print-text edit control uses a 16px `Malgun Gothic` UI font so the entered text is easier to read while editing.
 - Empty text, empty font selection, numeric input errors, unavailable font failures, and output failures are shown to the user with `MessageBoxW` messages in the selected UI language.
 - The print button is disabled while a worker print job is running and re-enabled after the completion message is handled on the GUI thread.

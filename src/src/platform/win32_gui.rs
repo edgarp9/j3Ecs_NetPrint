@@ -1,7 +1,8 @@
 use std::{
+    env,
     error::Error,
-    fmt,
-    path::PathBuf,
+    fmt, fs,
+    path::{Path, PathBuf},
     ptr::{null, null_mut},
     thread,
 };
@@ -24,18 +25,19 @@ use windows_sys::Win32::{
             BN_CLICKED, BS_DEFPUSHBUTTON, BS_GROUPBOX, CB_ADDSTRING, CB_ERR, CB_ERRSPACE,
             CB_FINDSTRINGEXACT, CB_GETCURSEL, CB_GETLBTEXT, CB_GETLBTEXTLEN, CB_RESETCONTENT,
             CB_SETCURSEL, CBN_SELCHANGE, CBS_DROPDOWNLIST, CBS_HASSTRINGS, CBS_SORT, CREATESTRUCTW,
-            CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DispatchMessageW, ES_AUTOHSCROLL,
-            ES_AUTOVSCROLL, ES_LEFT, ES_MULTILINE, ES_NUMBER, ES_WANTRETURN, GWLP_USERDATA,
-            GetClientRect, GetMessageW, GetSystemMetrics, GetWindowLongPtrW, GetWindowTextLengthW,
-            GetWindowTextW, HICON, HMENU, ICON_BIG, ICON_SMALL, IDC_ARROW, IMAGE_ICON, KillTimer,
-            LR_DEFAULTSIZE, LR_SHARED, LoadCursorW, LoadImageW, MB_ICONERROR, MB_ICONINFORMATION,
-            MB_ICONWARNING, MB_OK, MSG, MessageBoxW, MoveWindow, PostMessageW, PostQuitMessage,
-            RegisterClassW, SM_CXICON, SM_CXSMICON, SM_CYICON, SM_CYSMICON, STN_CLICKED, SW_HIDE,
-            SW_SHOW, SendMessageW, SetTimer, SetWindowLongPtrW, SetWindowTextW, ShowWindow,
-            TranslateMessage, WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLOREDIT,
-            WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC, WM_DESTROY, WM_ERASEBKGND, WM_SETFONT,
-            WM_SETICON, WM_TIMER, WM_USER, WNDCLASSW, WS_BORDER, WS_CHILD, WS_EX_CLIENTEDGE,
-            WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+            CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
+            ES_AUTOHSCROLL, ES_AUTOVSCROLL, ES_LEFT, ES_MULTILINE, ES_NUMBER, ES_READONLY,
+            ES_WANTRETURN, GWLP_USERDATA, GetClientRect, GetMessageW, GetSystemMetrics,
+            GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, HICON, HMENU, ICON_BIG,
+            ICON_SMALL, IDC_ARROW, IMAGE_ICON, KillTimer, LR_DEFAULTSIZE, LR_SHARED, LoadCursorW,
+            LoadImageW, MB_ICONERROR, MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MSG, MessageBoxW,
+            MoveWindow, PostMessageW, PostQuitMessage, RegisterClassW, SM_CXICON, SM_CXSMICON,
+            SM_CYICON, SM_CYSMICON, STN_CLICKED, SW_HIDE, SW_SHOW, SendMessageW, SetTimer,
+            SetWindowLongPtrW, SetWindowTextW, ShowWindow, TranslateMessage, WM_COMMAND, WM_CREATE,
+            WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC, WM_DESTROY,
+            WM_ERASEBKGND, WM_SETFONT, WM_SETICON, WM_TIMER, WM_USER, WNDCLASSW, WS_BORDER,
+            WS_CAPTION, WS_CHILD, WS_EX_CLIENTEDGE, WS_OVERLAPPEDWINDOW, WS_SYSMENU, WS_TABSTOP,
+            WS_VISIBLE, WS_VSCROLL,
         },
     },
 };
@@ -55,6 +57,7 @@ use self::ui_text::{
 
 const WINDOW_TITLE: &str = "ESC/POS Printer Text to Image";
 const WINDOW_CLASS_NAME: &str = "J3EcsNetPrintWindow";
+const ABOUT_WINDOW_CLASS_NAME: &str = "J3EcsNetPrintAboutWindow";
 const APP_ICON_RESOURCE_ID: u16 = 1;
 const WM_PRINT_COMPLETED: u32 = WM_USER + 1;
 const WORKER_COMPLETION_TIMER_ID: usize = 1;
@@ -66,9 +69,16 @@ const ID_THEME_COMBO: i32 = 1003;
 const ID_SETTINGS_TOGGLE_BUTTON: i32 = 1004;
 const ID_LANGUAGE_COMBO: i32 = 1005;
 const ID_GITHUB_LINK: i32 = 1006;
+const ID_ABOUT_LINK: i32 = 1007;
+const ID_ABOUT_OK_BUTTON: i32 = 2001;
+const ID_ABOUT_PROJECT_LINK: i32 = 2002;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-const PROJECT_LINK_URL: &str = "https://github.com/edgarp9";
+const APP_NAME: &str = "j3Ecs NetPrint";
+const PROJECT_LINK_LABEL: &str = "edgarp9/j3Ecs_NetPrint";
+const PROJECT_LINK_URL: &str = "https://github.com/edgarp9/j3Ecs_NetPrint";
+const ABOUT_TEXT_FILE: &str = "about.txt";
+const DEFAULT_ABOUT_TEXT: &str = include_str!("../../about.txt");
 const SHELL_EXECUTE_SUCCESS_MIN: isize = 33;
 const STATIC_NOTIFY_STYLE: u32 = 0x0000_0100;
 
@@ -79,6 +89,8 @@ const EDIT_HEIGHT: i32 = 24;
 const LABEL_HEIGHT: i32 = 20;
 const TEXT_EDIT_FONT_HEIGHT_PX: i32 = 16;
 const TEXT_EDIT_FONT_FACE_NAME: &str = "Malgun Gothic";
+const ABOUT_BODY_FONT_HEIGHT_PX: i32 = 14;
+const ABOUT_BODY_FONT_FACE_NAME: &str = "Consolas";
 
 const SETTINGS_GROUP_RECT: ControlRect = ControlRect {
     x: 16,
@@ -122,10 +134,37 @@ const PRINT_BUTTON_RECT: ControlRect = ControlRect {
     width: 472,
     height: 44,
 };
+const ABOUT_WINDOW_WIDTH: i32 = 620;
+const ABOUT_WINDOW_HEIGHT: i32 = 430;
+const ABOUT_VERSION_LABEL_RECT: ControlRect = ControlRect {
+    x: 16,
+    y: 16,
+    width: 570,
+    height: LABEL_HEIGHT,
+};
+const ABOUT_BODY_EDIT_RECT: ControlRect = ControlRect {
+    x: 16,
+    y: 48,
+    width: 570,
+    height: 298,
+};
+const ABOUT_PROJECT_LINK_RECT: ControlRect = ControlRect {
+    x: 16,
+    y: 366,
+    width: 360,
+    height: LABEL_HEIGHT,
+};
+const ABOUT_OK_BUTTON_RECT: ControlRect = ControlRect {
+    x: 490,
+    y: 362,
+    width: 96,
+    height: 28,
+};
 
 pub fn run() -> Result<(), GuiError> {
     let hinstance = module_handle()?;
     register_window_class(hinstance)?;
+    register_about_window_class(hinstance)?;
 
     let class_name = wide_null(WINDOW_CLASS_NAME);
     let window_title = wide_null(WINDOW_TITLE);
@@ -238,6 +277,22 @@ impl UserMessage {
             icon: MessageIcon::Error,
         }
     }
+}
+
+#[derive(Debug)]
+struct AboutWindowContent {
+    title: String,
+    version_label: String,
+    body_text: String,
+    project_url: &'static str,
+    ok_label: &'static str,
+}
+
+#[derive(Debug)]
+struct AboutWindowCreateParams {
+    theme: UiTheme,
+    language: UiLanguage,
+    content: *const AboutWindowContent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -469,6 +524,7 @@ struct Controls {
     language_combo: HWND,
     version_label: HWND,
     github_link: HWND,
+    about_link: HWND,
     text_group: HWND,
     text_edit: HWND,
     settings_toggle_button: HWND,
@@ -645,7 +701,7 @@ impl Controls {
         let github_link = create_clickable_static(
             hinstance,
             parent,
-            PROJECT_LINK_URL,
+            PROJECT_LINK_LABEL,
             ControlRect {
                 x: 205,
                 y: 184,
@@ -653,6 +709,18 @@ impl Controls {
                 height: LABEL_HEIGHT,
             },
             ID_GITHUB_LINK,
+        )?;
+        let about_link = create_clickable_static(
+            hinstance,
+            parent,
+            text.about_link_label,
+            ControlRect {
+                x: 30,
+                y: 204,
+                width: 120,
+                height: LABEL_HEIGHT,
+            },
+            ID_ABOUT_LINK,
         )?;
 
         let text_group = create_child(
@@ -715,6 +783,7 @@ impl Controls {
             language_combo,
             version_label,
             github_link,
+            about_link,
             settings_toggle_button,
             text_group,
             text_edit,
@@ -743,6 +812,7 @@ impl Controls {
             language_combo,
             version_label,
             github_link,
+            about_link,
             text_group,
             text_edit,
             settings_toggle_button,
@@ -768,6 +838,7 @@ impl Controls {
                 language_combo,
                 version_label,
                 github_link,
+                about_link,
             ],
             theme_windows,
         })
@@ -809,7 +880,8 @@ impl Controls {
         set_window_text(self.theme_label, text.theme_label)?;
         set_window_text(self.language_label, text.language_label)?;
         set_window_text(self.version_label, &program_version_text(text))?;
-        set_window_text(self.github_link, PROJECT_LINK_URL)?;
+        set_window_text(self.github_link, PROJECT_LINK_LABEL)?;
+        set_window_text(self.about_link, text.about_link_label)?;
         set_window_text(self.text_group, text.text_group_label)?;
         set_window_text(
             self.settings_toggle_button,
@@ -829,6 +901,108 @@ impl Controls {
     fn apply_text_area_layout(&self, layout: SettingsPanelLayout) -> Result<(), GuiError> {
         move_child_window(self.text_group, layout.text_group)?;
         move_child_window(self.text_edit, layout.text_edit)
+    }
+
+    fn invalidate(&self) {
+        for hwnd in &self.theme_windows {
+            invalidate_window(*hwnd);
+        }
+    }
+}
+
+#[derive(Debug)]
+struct AboutWindowState {
+    controls: AboutWindowControls,
+    language: UiLanguage,
+    theme_resources: ThemeResources,
+}
+
+impl AboutWindowState {
+    fn create(
+        parent: HWND,
+        hinstance: HINSTANCE,
+        theme: UiTheme,
+        language: UiLanguage,
+        content: &AboutWindowContent,
+    ) -> Result<Self, GuiError> {
+        let theme_resources = ThemeResources::create(theme)?;
+        Ok(Self {
+            controls: AboutWindowControls::create(parent, hinstance, content)?,
+            language,
+            theme_resources,
+        })
+    }
+}
+
+#[derive(Debug)]
+struct AboutWindowControls {
+    project_link: HWND,
+    _body_edit_font: OwnedGuiFont,
+    theme_windows: Vec<HWND>,
+}
+
+impl AboutWindowControls {
+    fn create(
+        parent: HWND,
+        hinstance: HINSTANCE,
+        content: &AboutWindowContent,
+    ) -> Result<Self, GuiError> {
+        let gui_font = default_gui_font();
+        let body_edit_font =
+            OwnedGuiFont::create(ABOUT_BODY_FONT_FACE_NAME, ABOUT_BODY_FONT_HEIGHT_PX)?;
+        let version_label = create_static(
+            hinstance,
+            parent,
+            &content.version_label,
+            ABOUT_VERSION_LABEL_RECT.x,
+            ABOUT_VERSION_LABEL_RECT.y,
+            ABOUT_VERSION_LABEL_RECT.width,
+            ABOUT_VERSION_LABEL_RECT.height,
+        )?;
+        let body_edit_text = win32_edit_multiline_text(&content.body_text);
+        let body_edit = create_edit(
+            hinstance,
+            parent,
+            &body_edit_text,
+            ABOUT_BODY_EDIT_RECT.x,
+            ABOUT_BODY_EDIT_RECT.y,
+            ABOUT_BODY_EDIT_RECT.width,
+            ABOUT_BODY_EDIT_RECT.height,
+            ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
+            WS_VSCROLL,
+        )?;
+        let project_link = create_clickable_static(
+            hinstance,
+            parent,
+            content.project_url,
+            ABOUT_PROJECT_LINK_RECT,
+            ID_ABOUT_PROJECT_LINK,
+        )?;
+        let ok_button = create_child(
+            hinstance,
+            parent,
+            "BUTTON",
+            content.ok_label,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | (BS_DEFPUSHBUTTON as u32),
+            ABOUT_OK_BUTTON_RECT.x,
+            ABOUT_OK_BUTTON_RECT.y,
+            ABOUT_OK_BUTTON_RECT.width,
+            ABOUT_OK_BUTTON_RECT.height,
+            ID_ABOUT_OK_BUTTON,
+            0,
+        )?;
+
+        let theme_windows = vec![version_label, body_edit, project_link, ok_button];
+        for hwnd in &theme_windows {
+            apply_font(*hwnd, gui_font);
+        }
+        apply_font(body_edit, body_edit_font.handle() as HGDIOBJ);
+
+        Ok(Self {
+            project_link,
+            _body_edit_font: body_edit_font,
+            theme_windows,
+        })
     }
 
     fn invalidate(&self) {
@@ -1006,6 +1180,10 @@ unsafe extern "system" fn window_proc(
                 handle_github_link_clicked(hwnd);
                 return 0;
             }
+            if control_id == ID_ABOUT_LINK && u32::from(notification) == STN_CLICKED {
+                handle_about_link_clicked(hwnd);
+                return 0;
+            }
 
             // SAFETY: unhandled messages are delegated to the system default window procedure.
             unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
@@ -1050,6 +1228,104 @@ unsafe extern "system" fn window_proc(
         _ => {
             // SAFETY: unhandled messages are delegated to the system default window procedure.
             unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+        }
+    }
+}
+
+unsafe extern "system" fn about_window_proc(
+    hwnd: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    match message {
+        WM_CREATE => handle_about_create(hwnd, lparam),
+        WM_COMMAND => {
+            let control_id = loword(wparam);
+            let notification = hiword(wparam);
+            if control_id == ID_ABOUT_OK_BUTTON && u32::from(notification) == BN_CLICKED {
+                // SAFETY: hwnd is the live About window receiving the button command.
+                unsafe {
+                    DestroyWindow(hwnd);
+                }
+                return 0;
+            }
+            if control_id == ID_ABOUT_PROJECT_LINK && u32::from(notification) == STN_CLICKED {
+                handle_about_project_link_clicked(hwnd);
+                return 0;
+            }
+
+            // SAFETY: unhandled messages are delegated to the system default window procedure.
+            unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+        }
+        WM_ERASEBKGND => {
+            if fill_about_window_background(hwnd, wparam as HDC) {
+                return 1;
+            }
+
+            // SAFETY: unhandled background erase messages use the system default window procedure.
+            unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+        }
+        WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLORLISTBOX => {
+            if let Some(brush) =
+                about_control_color_brush(hwnd, message, wparam as HDC, lparam as HWND)
+            {
+                return brush as LRESULT;
+            }
+
+            // SAFETY: control color messages without window state use the system default handling.
+            unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+        }
+        WM_DESTROY => {
+            drop_about_window_state(hwnd);
+            0
+        }
+        _ => {
+            // SAFETY: unhandled messages are delegated to the system default window procedure.
+            unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+        }
+    }
+}
+
+fn handle_about_create(hwnd: HWND, lparam: LPARAM) -> LRESULT {
+    let create = lparam as *const CREATESTRUCTW;
+    if create.is_null() {
+        trace_gui("About window creation information could not be read");
+        return -1;
+    }
+
+    // SAFETY: lparam for WM_CREATE points to a valid CREATESTRUCTW for this message.
+    let params = unsafe { (*create).lpCreateParams as *const AboutWindowCreateParams };
+    if params.is_null() {
+        trace_gui("About window creation parameters could not be read");
+        return -1;
+    }
+
+    // SAFETY: params and content point to stack data owned by show_about_window during
+    // synchronous CreateWindowExW/WM_CREATE processing.
+    let params = unsafe { &*params };
+    if params.content.is_null() {
+        trace_gui("About window content could not be read");
+        return -1;
+    }
+
+    // SAFETY: lparam for WM_CREATE points to a valid CREATESTRUCTW for this message.
+    let hinstance = unsafe { (*create).hInstance };
+    // SAFETY: content is checked non-null above and is valid during this synchronous call.
+    let content = unsafe { &*params.content };
+    match AboutWindowState::create(hwnd, hinstance, params.theme, params.language, content) {
+        Ok(state) => {
+            let state_ptr = Box::into_raw(Box::new(state));
+            // SAFETY: state_ptr remains owned by the About window until WM_DESTROY drops it.
+            unsafe {
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, state_ptr as isize);
+            }
+            redraw_about_theme(hwnd);
+            0
+        }
+        Err(error) => {
+            trace_gui(format!("About window could not be initialized: {error}"));
+            -1
         }
     }
 }
@@ -1365,6 +1641,127 @@ fn handle_github_link_clicked(hwnd: HWND) {
     }
 }
 
+fn handle_about_project_link_clicked(hwnd: HWND) {
+    let language = about_window_state_mut(hwnd)
+        .map(|state| state.language)
+        .unwrap_or(UiLanguage::English);
+
+    trace_gui(format!("opening About project URL: {PROJECT_LINK_URL}"));
+    if let Err(error) = open_url_in_default_browser(PROJECT_LINK_URL) {
+        show_message(
+            hwnd,
+            &UserMessage::error(
+                localized(language, "Link Error", "링크 오류"),
+                format!(
+                    "{}\n\n{error}",
+                    localized(
+                        language,
+                        "The project URL could not be opened.",
+                        "프로젝트 URL을 열 수 없습니다.",
+                    )
+                ),
+            ),
+        );
+    }
+}
+
+fn handle_about_link_clicked(hwnd: HWND) {
+    let (language, theme) = window_state_mut(hwnd)
+        .map(|state| (state.app_settings.ui.language, state.app_settings.ui.theme))
+        .unwrap_or((UiLanguage::English, UiTheme::Light));
+
+    trace_gui("showing About window");
+    if let Err(error) = show_about_window(hwnd, language, theme) {
+        show_message(hwnd, &user_message_for_gui_error(&error, language));
+    }
+}
+
+fn show_about_window(owner: HWND, language: UiLanguage, theme: UiTheme) -> Result<(), GuiError> {
+    let hinstance = module_handle()?;
+    let content = about_window_content();
+    let params = AboutWindowCreateParams {
+        theme,
+        language,
+        content: &content,
+    };
+    let class_name = wide_null(ABOUT_WINDOW_CLASS_NAME);
+    let title = wide_null(&content.title);
+
+    // SAFETY: class_name and title are null-terminated and live for this call. params points to
+    // stack data that is read only during the synchronous WM_CREATE handling inside
+    // CreateWindowExW.
+    let hwnd = unsafe {
+        CreateWindowExW(
+            0,
+            class_name.as_ptr(),
+            title.as_ptr(),
+            WS_CAPTION | WS_SYSMENU,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            ABOUT_WINDOW_WIDTH,
+            ABOUT_WINDOW_HEIGHT,
+            owner,
+            null_mut(),
+            hinstance,
+            (&params as *const AboutWindowCreateParams).cast(),
+        )
+    };
+
+    if hwnd.is_null() {
+        return Err(GuiError::Win32CallFailed("CreateWindowExW(about)"));
+    }
+
+    if let Err(error) = set_window_icons(hwnd, hinstance) {
+        // SAFETY: hwnd was returned by CreateWindowExW above and is not shown yet.
+        unsafe {
+            DestroyWindow(hwnd);
+        }
+        return Err(error);
+    }
+
+    // SAFETY: hwnd is a live top-level About window returned by CreateWindowExW.
+    unsafe {
+        ShowWindow(hwnd, SW_SHOW);
+        UpdateWindow(hwnd);
+    }
+
+    Ok(())
+}
+
+fn about_window_content() -> AboutWindowContent {
+    AboutWindowContent {
+        title: format!("About {APP_NAME}"),
+        version_label: format!("{APP_NAME} {APP_VERSION}"),
+        body_text: load_about_text(),
+        project_url: PROJECT_LINK_URL,
+        ok_label: "OK",
+    }
+}
+
+fn load_about_text() -> String {
+    env::current_exe()
+        .ok()
+        .and_then(|path| read_about_text_for_executable(&path))
+        .unwrap_or_else(|| DEFAULT_ABOUT_TEXT.to_owned())
+}
+
+fn read_about_text_for_executable(executable_path: &Path) -> Option<String> {
+    about_text_path_for_executable(executable_path).and_then(|path| fs::read_to_string(path).ok())
+}
+
+fn about_text_path_for_executable(executable_path: &Path) -> Option<PathBuf> {
+    executable_path
+        .parent()
+        .filter(|directory| !directory.as_os_str().is_empty())
+        .map(|directory| directory.join(ABOUT_TEXT_FILE))
+}
+
+fn win32_edit_multiline_text(text: &str) -> String {
+    text.replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .replace('\n', "\r\n")
+}
+
 fn handle_print_completed(hwnd: HWND) {
     stop_worker_completion_poll(hwnd);
 
@@ -1543,6 +1940,26 @@ fn fill_window_background(hwnd: HWND, hdc: HDC) -> bool {
     unsafe { FillRect(hdc, &rect, state.theme_resources.background_brush()) != 0 }
 }
 
+fn fill_about_window_background(hwnd: HWND, hdc: HDC) -> bool {
+    if hdc.is_null() {
+        return false;
+    }
+
+    let Some(state) = about_window_state_mut(hwnd) else {
+        return false;
+    };
+    let mut rect = RECT::default();
+
+    // SAFETY: hwnd is the window being painted and rect is a valid out pointer.
+    if unsafe { GetClientRect(hwnd, &mut rect) } == 0 {
+        return false;
+    }
+
+    // SAFETY: hdc is supplied by WM_ERASEBKGND, rect is initialized, and the brush is either a
+    // system brush or an owned brush that lives with AboutWindowState.
+    unsafe { FillRect(hdc, &rect, state.theme_resources.background_brush()) != 0 }
+}
+
 fn control_color_brush(hwnd: HWND, message: u32, hdc: HDC, control: HWND) -> Option<HBRUSH> {
     if hdc.is_null() {
         return None;
@@ -1559,7 +1976,34 @@ fn control_color_brush(hwnd: HWND, message: u32, hdc: HDC, control: HWND) -> Opt
             Some(state.theme_resources.button_brush())
         }
         WM_CTLCOLORSTATIC => {
-            if control == state.controls.github_link {
+            if control == state.controls.github_link || control == state.controls.about_link {
+                state.theme_resources.apply_link_colors(hdc);
+            } else {
+                state.theme_resources.apply_background_colors(hdc);
+            }
+            Some(state.theme_resources.background_brush())
+        }
+        _ => None,
+    }
+}
+
+fn about_control_color_brush(hwnd: HWND, message: u32, hdc: HDC, control: HWND) -> Option<HBRUSH> {
+    if hdc.is_null() {
+        return None;
+    }
+
+    let state = about_window_state_mut(hwnd)?;
+    match message {
+        WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {
+            state.theme_resources.apply_field_colors(hdc);
+            Some(state.theme_resources.field_brush())
+        }
+        WM_CTLCOLORBTN => {
+            state.theme_resources.apply_button_colors(hdc);
+            Some(state.theme_resources.button_brush())
+        }
+        WM_CTLCOLORSTATIC => {
+            if control == state.controls.project_link {
                 state.theme_resources.apply_link_colors(hdc);
             } else {
                 state.theme_resources.apply_background_colors(hdc);
@@ -1577,6 +2021,18 @@ fn redraw_theme(hwnd: HWND) {
     }
 
     // SAFETY: hwnd is a live top-level window while called from the GUI thread.
+    unsafe {
+        UpdateWindow(hwnd);
+    }
+}
+
+fn redraw_about_theme(hwnd: HWND) {
+    invalidate_window(hwnd);
+    if let Some(state) = about_window_state_mut(hwnd) {
+        state.controls.invalidate();
+    }
+
+    // SAFETY: hwnd is a live About window while called from the GUI thread.
     unsafe {
         UpdateWindow(hwnd);
     }
@@ -1792,6 +2248,36 @@ fn register_window_class(hinstance: HINSTANCE) -> Result<(), GuiError> {
     let atom = unsafe { RegisterClassW(&wnd_class) };
     if atom == 0 {
         return Err(GuiError::Win32CallFailed("RegisterClassW"));
+    }
+
+    Ok(())
+}
+
+fn register_about_window_class(hinstance: HINSTANCE) -> Result<(), GuiError> {
+    let class_name = wide_null(ABOUT_WINDOW_CLASS_NAME);
+    let icon = load_app_icon(hinstance, 0, 0, LR_DEFAULTSIZE | LR_SHARED)?;
+
+    // SAFETY: passing a null instance with IDC_ARROW loads the predefined arrow cursor.
+    let cursor = unsafe { LoadCursorW(null_mut(), IDC_ARROW) };
+    if cursor.is_null() {
+        return Err(GuiError::Win32CallFailed("LoadCursorW"));
+    }
+
+    let wnd_class = WNDCLASSW {
+        lpfnWndProc: Some(about_window_proc),
+        hInstance: hinstance,
+        hIcon: icon,
+        hCursor: cursor,
+        hbrBackground: system_color_brush(COLOR_WINDOW),
+        lpszClassName: class_name.as_ptr(),
+        ..WNDCLASSW::default()
+    };
+
+    // SAFETY: wnd_class points to a valid class definition and class_name remains alive for this
+    // call.
+    let atom = unsafe { RegisterClassW(&wnd_class) };
+    if atom == 0 {
+        return Err(GuiError::Win32CallFailed("RegisterClassW(about)"));
     }
 
     Ok(())
@@ -2504,6 +2990,17 @@ fn window_state_mut(hwnd: HWND) -> Option<&'static mut WindowState> {
     Some(unsafe { &mut *raw })
 }
 
+fn about_window_state_mut(hwnd: HWND) -> Option<&'static mut AboutWindowState> {
+    // SAFETY: GWLP_USERDATA stores a Box<AboutWindowState> pointer while the window is alive.
+    let raw = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut AboutWindowState;
+    if raw.is_null() {
+        return None;
+    }
+
+    // SAFETY: raw is non-null and uniquely accessed on the GUI thread while handling a message.
+    Some(unsafe { &mut *raw })
+}
+
 fn drop_window_state(hwnd: HWND) {
     stop_worker_completion_poll(hwnd);
 
@@ -2521,6 +3018,23 @@ fn drop_window_state(hwnd: HWND) {
     // SAFETY: raw was allocated with Box::into_raw in handle_create and is owned by the window.
     let mut state = unsafe { Box::from_raw(raw) };
     state.wait_for_worker_before_destroy();
+}
+
+fn drop_about_window_state(hwnd: HWND) {
+    // SAFETY: GWLP_USERDATA stores a Box<AboutWindowState> pointer while the window is alive.
+    let raw = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut AboutWindowState;
+    if raw.is_null() {
+        return;
+    }
+
+    // SAFETY: clearing user data prevents later double drops.
+    unsafe {
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+    }
+
+    // SAFETY: raw was allocated with Box::into_raw in handle_about_create and is owned by the
+    // About window.
+    let _state = unsafe { Box::from_raw(raw) };
 }
 
 fn create_solid_brush(color: u32) -> Result<HBRUSH, GuiError> {
@@ -2623,15 +3137,21 @@ mod tests {
         assert_eq!(english.settings_hide_button_label, "Hide Settings");
         assert_eq!(english.settings_show_button_label, "Show Settings");
         assert_eq!(english.version_label, "Version");
+        assert_eq!(english.about_link_label, "About");
         assert_eq!(english.print_button_label, "Convert to Image and Print");
         assert_eq!(
             program_version_text(english),
             format!("Version {APP_VERSION}")
         );
-        assert_eq!(PROJECT_LINK_URL, "https://github.com/edgarp9");
+        assert_eq!(PROJECT_LINK_LABEL, "edgarp9/j3Ecs_NetPrint");
+        assert_eq!(
+            PROJECT_LINK_URL,
+            "https://github.com/edgarp9/j3Ecs_NetPrint"
+        );
         assert_eq!(korean.settings_group_label, "프린터 및 폰트 설정");
         assert_eq!(korean.text_group_label, "출력할 내용");
         assert_eq!(korean.version_label, "버전");
+        assert_eq!(korean.about_link_label, "정보");
         assert_eq!(program_version_text(korean), format!("버전 {APP_VERSION}"));
         assert_eq!(ui_theme_label(UiTheme::Light, UiLanguage::Korean), "라이트");
         assert_eq!(ui_theme_label(UiTheme::Dark, UiLanguage::Korean), "다크");
@@ -2651,11 +3171,94 @@ mod tests {
         assert_eq!(ui_language_from_label("한글"), Some(UiLanguage::Korean));
         assert_eq!(TEXT_EDIT_FONT_FACE_NAME, "Malgun Gothic");
         assert_eq!(TEXT_EDIT_FONT_HEIGHT_PX, 16);
+        assert_eq!(ABOUT_BODY_FONT_FACE_NAME, "Consolas");
+        assert_eq!(ABOUT_BODY_FONT_HEIGHT_PX, 14);
+        assert_eq!(ABOUT_TEXT_FILE, "about.txt");
+        assert!(DEFAULT_ABOUT_TEXT.contains("GPL-3.0-or-later"));
+        assert!(DEFAULT_ABOUT_TEXT.contains("LICENSE"));
+        assert!(DEFAULT_ABOUT_TEXT.contains("THIRD_PARTY_NOTICES.txt"));
         assert_eq!(defaults.printer_ip, "192.168.0.1");
         assert_eq!(defaults.printer_port, "9100");
         assert_eq!(defaults.font_size_px, "42");
         assert_eq!(defaults.paper_width_px, "576");
         assert_eq!(defaults.font_face_name, "Malgun Gothic");
+    }
+
+    #[test]
+    fn about_window_content_matches_required_dialog_contract() {
+        assert_eq!(ABOUT_WINDOW_WIDTH, 620);
+        assert_eq!(ABOUT_WINDOW_HEIGHT, 430);
+        assert_eq!(ABOUT_BODY_EDIT_RECT.height, 298);
+
+        let content = about_window_content();
+        assert_eq!(content.title, "About j3Ecs NetPrint");
+        assert_eq!(content.version_label, format!("{APP_NAME} {APP_VERSION}"));
+        assert_eq!(content.project_url, PROJECT_LINK_URL);
+        assert_eq!(content.ok_label, "OK");
+        assert!(content.body_text.contains("j3Ecs NetPrint"));
+        assert!(content.body_text.contains("Version: 0.2.0"));
+        assert!(content.body_text.contains("GPL-3.0-or-later"));
+        assert!(content.body_text.contains("WARRANTY"));
+        assert!(content.body_text.contains("Full license text:\nLICENSE"));
+        assert!(content.body_text.contains(PROJECT_LINK_URL));
+        assert!(content.body_text.contains("THIRD_PARTY_NOTICES.txt"));
+        assert!(
+            content
+                .body_text
+                .contains("RUST_STANDARD_LIBRARY_NOTICES.html")
+        );
+    }
+
+    #[test]
+    fn about_text_path_is_next_to_executable() {
+        let executable_path = Path::new("release").join("j3ecs-netprint.exe");
+        let about_path = about_text_path_for_executable(&executable_path)
+            .expect("executable with parent directory should resolve about.txt");
+
+        assert_eq!(about_path, Path::new("release").join(ABOUT_TEXT_FILE));
+        assert_eq!(
+            about_text_path_for_executable(Path::new("j3ecs-netprint.exe")),
+            None
+        );
+    }
+
+    #[test]
+    fn about_text_loader_reads_file_next_to_executable() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time should be after Unix epoch")
+            .as_nanos();
+        let temp_dir = env::temp_dir().join(format!(
+            "j3ecs-netprint-about-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&temp_dir).expect("test about directory should be created");
+        let executable_path = temp_dir.join("j3ecs-netprint.exe");
+        let about_path = temp_dir.join(ABOUT_TEXT_FILE);
+
+        fs::write(&about_path, "disk about text")
+            .expect("test about file should be writable next to executable");
+
+        assert_eq!(
+            read_about_text_for_executable(&executable_path),
+            Some("disk about text".to_owned())
+        );
+
+        fs::remove_dir_all(&temp_dir).expect("test about directory should be removed");
+    }
+
+    #[test]
+    fn win32_edit_multiline_text_uses_crlf_line_endings() {
+        assert_eq!(
+            win32_edit_multiline_text("Project\nLibrary\r\nLicense\rNotice"),
+            "Project\r\nLibrary\r\nLicense\r\nNotice"
+        );
+
+        let content = about_window_content();
+        let edit_text = win32_edit_multiline_text(&content.body_text);
+        assert!(edit_text.contains("j3Ecs NetPrint\r\n\r\nVersion"));
+        assert!(edit_text.contains("Full license text:\r\nLICENSE"));
+        assert!(!edit_text.contains("j3Ecs NetPrintVersion"));
     }
 
     #[test]
@@ -2690,6 +3293,8 @@ mod tests {
     fn settings_panel_toggle_contract() {
         let english = ui_text(UiLanguage::English);
         let korean = ui_text(UiLanguage::Korean);
+        let expanded_layout = settings_panel_layout(true);
+        let collapsed_layout = settings_panel_layout(false);
 
         assert!(!toggled_settings_panel_visibility(true));
         assert!(toggled_settings_panel_visibility(false));
@@ -2701,21 +3306,21 @@ mod tests {
         assert_eq!(settings_toggle_button_label(true, korean), "설정 숨기기");
         assert_eq!(settings_toggle_button_label(false, korean), "설정 보이기");
         assert_eq!(
-            settings_panel_layout(true),
+            expanded_layout,
             SettingsPanelLayout {
                 text_group: TEXT_GROUP_EXPANDED_RECT,
                 text_edit: TEXT_EDIT_EXPANDED_RECT,
             }
         );
         assert_eq!(
-            settings_panel_layout(false),
+            collapsed_layout,
             SettingsPanelLayout {
                 text_group: TEXT_GROUP_COLLAPSED_RECT,
                 text_edit: TEXT_EDIT_COLLAPSED_RECT,
             }
         );
-        assert!(TEXT_GROUP_COLLAPSED_RECT.y < TEXT_GROUP_EXPANDED_RECT.y);
-        assert!(TEXT_EDIT_COLLAPSED_RECT.height > TEXT_EDIT_EXPANDED_RECT.height);
+        assert!(collapsed_layout.text_group.y < expanded_layout.text_group.y);
+        assert!(collapsed_layout.text_edit.height > expanded_layout.text_edit.height);
     }
 
     #[test]
